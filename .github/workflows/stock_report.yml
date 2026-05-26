@@ -25,25 +25,10 @@ jobs:
           echo "message<<EOF" >> $GITHUB_OUTPUT
           echo "$OUTPUT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
-        continue-on-error: true
 
       - name: Send Telegram
         if: steps.report.outputs.message != ''
-        run: |
-          python3 -c "
-import os, requests, sys
-token = os.environ['TELEGRAM_BOT_TOKEN']
-chat  = os.environ['TELEGRAM_CHAT_ID']
-text  = os.environ['MSG']
-if not text.strip():
-    print('KRX closed today - skipping')
-    sys.exit(0)
-r = requests.post(
-    f'https://api.telegram.org/bot{token}/sendMessage',
-    json={'chat_id': chat, 'text': text}
-)
-print('Sent:', r.status_code)
-"
+        run: python send_telegram.py
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
