@@ -1,12 +1,16 @@
 """
-삼성전자우선주 (005935.KS) 예상주가 vs 실제주가 비교 리포트
-매일 오전 9시(KST) 텔레그램으로 발송 / KRX 휴장일 자동 스킵
+한국 주요 반도체/전자 종목 아침 주가 리포트
+- 삼성전자우선주 (005935)
+- 삼성전자     (005930)
+- SK하이닉스   (000660)
+- 삼성전기     (009150)
+매일 오전 9시(KST) 텔레그램 발송 / KRX 휴장일 자동 스킵
 """
 
 import os, sys, pathlib
 import yfinance as yf
 import pandas as pd
-from datetime import datetime, date
+from datetime import datetime
 import exchange_calendars as ec
 import pytz
 
@@ -19,11 +23,17 @@ if _env_path.exists():
             _k, _v = _line.split("=", 1)
             os.environ.setdefault(_k.strip(), _v.strip())
 
-TICKER_PREF   = "005935.KS"
+KST  = pytz.timezone("Asia/Seoul")
+XKRX = ec.get_calendar("XKRX")
 TICKER_NASDAQ = "^IXIC"
-KST        = pytz.timezone("Asia/Seoul")
-XKRX       = ec.get_calendar("XKRX")
-STOCK_CODE = "005935"
+
+# 종목 정의: (티커, 종목명, 코드)
+STOCKS = [
+    ("005935.KS", "삼성전자우선주", "005935"),
+    ("005930.KS", "삼성전자",     "005930"),
+    ("000660.KS", "SK하이닉스",   "000660"),
+    ("009150.KS", "삼성전기",     "009150"),
+]
 
 
 def is_trading_day(check_date=None):
@@ -50,9 +60,9 @@ def nasdaq_overnight_return():
     return 0.0
 
 
-def predict_price(hist):
+def predict_price(hist, nq):
     if len(hist) < 22:
-        raise ValueError("데이터 부족 (최소 22거래일 필요)")
+        raise ValueError("데이터 부족")
     close      = hist["Close"]
     prev_close = float(close.iloc[-1])
     ma5        = float(close.rolling(5).mean().iloc[-1])
@@ -68,20 +78,17 @@ def predict_price(hist):
         signal, sig_adj = "상승추세 ↗", 0.001
     else:
         signal, sig_adj = "하락추세 ↘", -0.001
-    nq = nasdaq_overnight_return()
     predicted = round(prev_close * (1 + avg_ret * 0.5 + sig_adj + nq * 0.3) / 100) * 100
-    reason = (
-        "전일종가 " + f"{prev_close:,.0f}" + "원 | "
-        + "MA5=" + f"{ma5:,.0f}" + " / MA20=" + f"{ma20:,.0f}" + " (" + signal + ") | "
-        + "나스닥 야간 " + f"{nq*100:+.2f}" + "%"
-    )
-    return {"predicted_price": int(predicted), "prev_close": prev_close,
-            "ma5": ma5, "ma20": ma20, "signal": signal,
-            "reason": reason, "avg_ret_5d": avg_ret, "nasdaq_ret": nq}
+    return {
+        "predicted_price": int(predicted),
+        "prev_close": prev_close,
+        "ma5": ma5, "ma20": ma20,
+        "signal": signal,
+    }
 
 
-def get_actual_price():
-    t  = yf.Ticker(TICKER_PREF)
+def get_actual_price(ticker):
+    t  = yf.Ticker(ticker)
     fi = t.fast_info
     current  = float(fi.get("lastPrice",     0) or 0)
     open_px  = float(fi.get("open",          0) or 0)
@@ -93,38 +100,22 @@ def get_actual_price():
                 open_px = float(m1["Open"].iloc[0])
         except Exception:
             pass
-    return {"current_price": current, "open_price": open_px or current,
-            "prev_close": prev_cls,
-            "day_high": float(fi.get("dayHigh", 0) or 0),
-            "day_low":  float(fi.get("dayLow",  0) or 0)}
+    return {"current_price": current, "open_price": open_px or current, "prev_close": prev_cls}
 
 
-def build_message(pred, actual, now):
+def stock_section(name, code, pred, actual):
     pred_px     = pred["predicted_price"]
     open_px     = actual["open_price"]
     prev        = actual["prev_close"]
-    diff        = open_px - pred_px
-    diff_pct    = diff / pred_px * 100 if pred_px else 0
+    diff_pct    = (open_px - pred_px) / pred_px * 100 if pred_px else 0
     vs_prev     = open_px - prev
     vs_prev_pct = vs_prev / prev * 100 if prev else 0
     arrow = "🔴" if vs_prev < 0 else ("🟢" if vs_prev > 0 else "⬜")
-    sep   = "─" * 32
     parts = [
-        "📊 삼성전자우선주 (" + STOCK_CODE + ") 아침 리포트",
-        "📅 " + now.strftime("%Y-%m-%d %H:%M") + " KST",
-        sep,
-        "🔮 AI 예상 시초가: " + f"{pred_px:>10,.0f}" + "원",
-        "   " + pred["reason"],
-        "",
-        arrow + " 실제 시초가:     " + f"{open_px:>10,.0f}" + "원",
-        "   전일종가 대비: " + f"{vs_prev:+,.0f}" + "원 (" + f"{vs_prev_pct:+.2f}" + "%)",
-        "",
-        "📏 예측 오차: " + f"{diff:+,.0f}" + "원 (" + f"{diff_pct:+.2f}" + "%)",
-        sep,
-        "📈 MA5:  " + f"{pred['ma5']:,.0f}" + "원",
-        "📉 MA20: " + f"{pred['ma20']:,.0f}" + "원",
-        "🎯 추세 신호: " + pred["signal"],
-        "🌐 나스닥 야간: " + f"{pred['nasdaq_ret']*100:+.2f}" + "%",
+        "【" + name + " (" + code + ")】",
+        "  🔮 예상: " + f"{pred_px:>10,.0f}" + "원  |  " + pred["signal"],
+        "  " + arrow + " 실제: " + f"{open_px:>10,.0f}" + "원  " + f"({vs_prev:+,.0f}원 / {vs_prev_pct:+.2f}%)",
+        "  📏 오차: " + f"{diff_pct:+.2f}" + "%   MA5=" + f"{pred['ma5']:,.0f}" + " / MA20=" + f"{pred['ma20']:,.0f}",
     ]
     return "\n".join(parts)
 
@@ -133,24 +124,30 @@ def main():
     now   = datetime.now(KST)
     today = now.date()
 
-    # 휴장일: 아무것도 출력하지 않고 종료
     if not is_trading_day(today):
         sys.exit(0)
 
-    try:
-        pred = predict_price(get_history(TICKER_PREF, days=45))
-    except Exception as exc:
-        print("예상주가 계산 실패: " + str(exc), file=sys.stderr)
-        sys.exit(1)
+    nq = nasdaq_overnight_return()
 
-    try:
-        actual = get_actual_price()
-    except Exception as exc:
-        print("실제주가 조회 실패: " + str(exc), file=sys.stderr)
-        sys.exit(1)
+    sections = []
+    header = [
+        "📊 한국 주요 종목 아침 리포트",
+        "📅 " + now.strftime("%Y-%m-%d %H:%M") + " KST",
+        "🌐 나스닥 야간: " + f"{nq*100:+.2f}" + "%",
+        "═" * 32,
+    ]
 
-    # 깔끔한 메시지만 stdout 출력 → 텔레그램으로 전달됨
-    print(build_message(pred, actual, now))
+    for ticker, name, code in STOCKS:
+        try:
+            hist   = get_history(ticker, days=45)
+            pred   = predict_price(hist, nq)
+            actual = get_actual_price(ticker)
+            sections.append(stock_section(name, code, pred, actual))
+        except Exception as exc:
+            print(name + " 조회 실패: " + str(exc), file=sys.stderr)
+            sections.append("【" + name + " (" + code + ")】\n  ⚠️ 데이터 조회 실패")
+
+    print("\n".join(header) + "\n" + ("\n" + "─" * 32 + "\n").join(sections))
 
 
 if __name__ == "__main__":
