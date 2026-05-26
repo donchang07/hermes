@@ -1,0 +1,5 @@
+yfinance
+exchange-calendars
+requests
+pytz
+pandas
