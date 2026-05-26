@@ -1,58 +1,49 @@
-name: 삼성전자우선주 아침 리포트
+name: Samsung Stock Report
 
 on:
   schedule:
-    # 매일 오전 9시 KST = UTC 00:00, 월~금
     - cron: '0 0 * * 1-5'
-  workflow_dispatch:  # 수동 실행 버튼
+  workflow_dispatch:
 
 jobs:
-  stock-report:
+  report:
     runs-on: ubuntu-latest
-
     steps:
-      - name: 코드 체크아웃
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Python 설치
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: 라이브러리 설치
+      - name: Install dependencies
         run: pip install yfinance exchange-calendars requests pytz pandas
 
-      - name: 주가 리포트 생성
+      - name: Run stock report
         id: report
         run: |
-          OUTPUT=$(python stock_predictor.py)
+          OUTPUT=$(python stock_predictor.py 2>&1)
           echo "message<<EOF" >> $GITHUB_OUTPUT
           echo "$OUTPUT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
         continue-on-error: true
 
-      - name: 텔레그램 발송
+      - name: Send Telegram
         if: steps.report.outputs.message != ''
         run: |
-          python - <<'PYEOF'
-          import os, requests
-
-          bot_token = os.environ["TELEGRAM_BOT_TOKEN"]
-          chat_id   = os.environ["TELEGRAM_CHAT_ID"]
-          text      = os.environ["MSG"]
-
-          if not text.strip():
-              print("오늘은 KRX 휴장일 — 발송 없음")
-              exit(0)
-
-          url  = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-          resp = requests.post(url, json={
-              "chat_id": chat_id,
-              "text": text,
-              "parse_mode": "HTML"
-          })
-          print("발송 결과:", resp.status_code, resp.text[:200])
-          PYEOF
+          python3 -c "
+import os, requests, sys
+token = os.environ['TELEGRAM_BOT_TOKEN']
+chat  = os.environ['TELEGRAM_CHAT_ID']
+text  = os.environ['MSG']
+if not text.strip():
+    print('KRX closed today - skipping')
+    sys.exit(0)
+r = requests.post(
+    f'https://api.telegram.org/bot{token}/sendMessage',
+    json={'chat_id': chat, 'text': text}
+)
+print('Sent:', r.status_code)
+"
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
