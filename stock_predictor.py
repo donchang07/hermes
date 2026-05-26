@@ -132,20 +132,24 @@ def build_message(pred, actual, now):
 def main():
     now   = datetime.now(KST)
     today = now.date()
+
+    # 휴장일: 아무것도 출력하지 않고 종료
     if not is_trading_day(today):
-        # 휴장일: 아무것도 출력하지 않음 (크론잡 텔레그램 발송 없음)
         sys.exit(0)
+
     try:
         pred = predict_price(get_history(TICKER_PREF, days=45))
     except Exception as exc:
-        print("[ERROR] 예상주가 계산 실패: " + str(exc))
+        print("예상주가 계산 실패: " + str(exc), file=sys.stderr)
         sys.exit(1)
+
     try:
         actual = get_actual_price()
     except Exception as exc:
-        print("[ERROR] 실제주가 조회 실패: " + str(exc))
+        print("실제주가 조회 실패: " + str(exc), file=sys.stderr)
         sys.exit(1)
-    # 메시지를 stdout에 출력 → 크론잡이 텔레그램으로 전달
+
+    # 깔끔한 메시지만 stdout 출력 → 텔레그램으로 전달됨
     print(build_message(pred, actual, now))
 
 
